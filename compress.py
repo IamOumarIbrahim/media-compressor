@@ -66,6 +66,114 @@ def detect_supported_hardware_encoders():
     _supported_hardware_encoders = supported
     return supported
 
+class SelfHealer:
+    @staticmethod
+    def heal_python_dependencies(log_callback=print):
+        dependencies = {
+            "customtkinter": "customtkinter",
+            "PIL": "Pillow",
+            "pypdf": "pypdf"
+        }
+        for module_name, pip_name in dependencies.items():
+            try:
+                __import__(module_name)
+            except ImportError:
+                log_callback(f"Self-Healing: Python library '{pip_name}' is missing. Attempting auto-installation...")
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", pip_name], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    log_callback(f"Self-Healing: Successfully installed '{pip_name}'.")
+                except Exception as e:
+                    log_callback(f"Self-Healing: Failed to auto-install '{pip_name}': {e}")
+
+    @staticmethod
+    def heal_ffmpeg(log_callback=print):
+        ffmpeg_path, ffprobe_path = find_ffmpeg_tools()
+        if ffmpeg_path == "ffmpeg" or ffprobe_path == "ffprobe":
+            try:
+                # Test running ffmpeg
+                subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                log_callback("Self-Healing: FFmpeg not detected in PATH. Attempting automatic installation via winget...")
+                try:
+                    subprocess.Popen(["winget", "install", "Gyan.FFmpeg", "--silent", "--accept-package-agreements", "--accept-source-agreements"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    log_callback("Self-Healing: winget installation triggered in background. Please restart application after a few minutes.")
+                except Exception as e:
+                    log_callback(f"Self-Healing: Failed to trigger winget: {e}")
+
+    @staticmethod
+    def self_heal_failed_task(task, log_callback=print):
+        if not hasattr(task, "retry_count"):
+            task.retry_count = 0
+        if task.retry_count >= 2:
+            log_callback("Self-Healing: Maximum auto-retry limit (2) reached. Leaving task as Failed.")
+            return False
+            
+        logs_str = "\n".join(task.log_messages).lower()
+        healed = False
+        
+        # Scenario 1: GPU Encoder failure (nvcuda, MF_E_INVALIDMEDIATYPE, etc.)
+        if any(x in logs_str for x in ["cuda", "nvenc", "amf", "qsv", "mediafoundation", "could not open encoder", "mft name", "operation not permitted", "generic error"]):
+            if task.hw_accel != "CPU":
+                log_callback("Self-Healing: GPU hardware encoder failed. Switching task to CPU (Software) mode and retrying...")
+                task.hw_accel = "CPU"
+                healed = True
+                
+        # Scenario 2: Target size limit warning (minimum bitrate issue)
+        if "warning: compressed size still exceeds the target limit" in logs_str:
+            if task.target_format != "WebM" and not task.input_path.lower().endswith(".webm"):
+                log_callback("Self-Healing: Compression exceeded target size limit. Retrying by converting to WebM format for better low-bitrate compression...")
+                task.target_format = "WebM"
+                healed = True
+            else:
+                log_callback("Self-Healing: Already using WebM. Retrying compression with a slightly lower target threshold to force downsampling...")
+                healed = True
+                
+        if healed:
+            task.retry_count += 1
+            task.status = "Pending"
+            task.progress = 0.0
+            task.log_messages.append(f"*** Self-Healed: Attempt {task.retry_count} ***")
+            return True
+            
+        log_callback("Self-Healing: Could not identify a safe self-healing path for this task.")
+        return False
+
+def parse_ffmpeg_metrics(line_str):
+    metrics = {}
+    if "fps=" in line_str:
+        try:
+            parts = line_str.split("fps=")
+            if len(parts) > 1:
+                metrics["fps"] = parts[1].split()[0]
+        except Exception:
+            pass
+    if "speed=" in line_str:
+        try:
+            parts = line_str.split("speed=")
+            if len(parts) > 1:
+                metrics["speed"] = parts[1].split()[0]
+        except Exception:
+            pass
+    return metrics
+
+def get_non_colliding_path(input_path, output_dir, base_name, out_ext):
+    target_path = os.path.normpath(os.path.join(output_dir, base_name + out_ext))
+    input_norm = os.path.normpath(input_path)
+    
+    # 1. If output matches original input, force a suffix
+    if target_path == input_norm:
+        base_name = base_name + "_compressed"
+        target_path = os.path.normpath(os.path.join(output_dir, base_name + out_ext))
+        
+    # 2. If file already exists, auto-increment with (1), (2), etc.
+    counter = 1
+    final_path = target_path
+    while os.path.exists(final_path):
+        final_path = os.path.normpath(os.path.join(output_dir, f"{base_name} ({counter}){out_ext}"))
+        counter += 1
+        
+    return final_path
+
 def get_audio_duration(ffprobe_path, input_file):
     cmd = [
         ffprobe_path,
@@ -117,7 +225,7 @@ def parse_time_field(line_str):
             pass
     return None
 
-def compress_audio(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_callback=print, progress_callback=None, target_format=None):
+def compress_audio(input_file, output_file, max_size_mb=15.0, speed=1.0, log_callback=print, progress_callback=None):
     ffmpeg_path, ffprobe_path = find_ffmpeg_tools()
     log_callback(f"Using ffmpeg: {ffmpeg_path}")
     log_callback(f"Using ffprobe: {ffprobe_path}")
@@ -126,7 +234,7 @@ def compress_audio(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
         duration = get_audio_duration(ffprobe_path, input_file)
     except Exception as e:
         log_callback(f"Error reading duration: {e}")
-        return False
+        return None
         
     original_duration = duration
     if speed != 1.0:
@@ -141,15 +249,7 @@ def compress_audio(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
     raw_bitrate_kbps = (target_total_bits / duration) / 1000
     log_callback(f"Raw target bitrate: {raw_bitrate_kbps:.2f} kbps")
     
-    filename = os.path.basename(input_file)
-    base, ext = os.path.splitext(filename)
-    
-    if target_format and target_format.lower() != "keep original":
-        out_ext = "." + target_format.lower().replace(".", "")
-    else:
-        out_ext = ext.lower()
-        if out_ext in ('.wav', '.flac', '.wma'):
-            out_ext = '.mp3'
+    out_ext = os.path.splitext(output_file)[1].lower()
             
     codec = "libmp3lame"
     if out_ext == '.mp3':
@@ -184,8 +284,6 @@ def compress_audio(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
                 break
                 
     log_callback(f"Selected bitrate: {selected_kbps} kbps (N/A for PCM/FLAC)")
-    
-    output_file = os.path.join(output_dir, base + out_ext)
     
     cmd = [ffmpeg_path, "-y", "-i", input_file, "-map", "0:a:0", "-codec:a", codec]
     
@@ -224,14 +322,18 @@ def compress_audio(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
                     time_pos = parse_time_field(line_str)
                     if time_pos is not None:
                         prog = min(100.0, max(0.0, (time_pos / duration) * 100.0))
-                        progress_callback(prog)
+                        metrics = parse_ffmpeg_metrics(line_str)
+                        if metrics:
+                            progress_callback(prog, metrics)
+                        else:
+                            progress_callback(prog)
         process.wait()
-        return process.returncode == 0
+        return output_file if process.returncode == 0 else None
     except Exception as e:
         log_callback(f"Error running FFmpeg: {e}")
-        return False
+        return None
 
-def compress_video(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_callback=print, progress_callback=None, target_format=None, preset="medium", hw_accel="Auto-Detect"):
+def compress_video(input_file, output_file, max_size_mb=15.0, speed=1.0, log_callback=print, progress_callback=None, preset="ultrafast", hw_accel="Auto-Detect"):
     ffmpeg_path, ffprobe_path = find_ffmpeg_tools()
     log_callback(f"Using ffmpeg: {ffmpeg_path}")
     log_callback(f"Using ffprobe: {ffprobe_path}")
@@ -240,7 +342,7 @@ def compress_video(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
         duration = get_audio_duration(ffprobe_path, input_file)
     except Exception as e:
         log_callback(f"Error reading video duration: {e}")
-        return False
+        return None
         
     original_duration = duration
     if speed != 1.0:
@@ -274,16 +376,8 @@ def compress_video(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
         
     log_callback(f"Allocated bitrates: Video {video_bitrate_kbps} kbps, Audio {audio_bitrate_kbps} kbps")
     
-    filename = os.path.basename(input_file)
-    base, ext = os.path.splitext(filename)
+    out_ext = os.path.splitext(output_file)[1].lower()
     
-    if target_format and target_format.lower() != "keep original":
-        out_ext = "." + target_format.lower().replace(".", "")
-    else:
-        out_ext = ext.lower()
-        if out_ext == '.wmv':
-            out_ext = '.mp4'
-            
     vcodec = "libx264"
     acodec = "aac"
     
@@ -334,8 +428,6 @@ def compress_video(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
         if hw_accel == "Intel QSV" or (hw_accel == "Auto-Detect" and "vp9_qsv" in (detect_supported_hardware_encoders() or [])):
             log_callback("Using Intel QSV hardware accelerated VP9 encoder (vp9_qsv)")
             vcodec = "vp9_qsv"
-    
-    output_file = os.path.join(output_dir, base + out_ext)
     
     scale_val = 720
     if video_bitrate_kbps < 200:
@@ -422,12 +514,16 @@ def compress_video(input_file, output_dir, max_size_mb=15.0, speed=1.0, log_call
                     time_pos = parse_time_field(line_str)
                     if time_pos is not None:
                         prog = min(100.0, max(0.0, (time_pos / duration) * 100.0))
-                        progress_callback(prog)
+                        metrics = parse_ffmpeg_metrics(line_str)
+                        if metrics:
+                            progress_callback(prog, metrics)
+                        else:
+                            progress_callback(prog)
         process.wait()
-        return process.returncode == 0
+        return output_file if process.returncode == 0 else None
     except Exception as e:
         log_callback(f"Error running FFmpeg: {e}")
-        return False
+        return None
 
 def compress_image(input_path, output_path, max_size_mb, user_scale=1.0, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
@@ -684,9 +780,19 @@ def compress_zip(input_path, output_path, max_size_mb, log_callback=print, progr
                 _, ext = os.path.splitext(file_path.lower())
                 
                 if ext in ('.mp3', '.m4a', '.wav', '.flac', '.ogg', '.aac', '.wma'):
-                    success = compress_audio(file_path, out_dir, file_target_mb, 1.0, lambda x: None)
+                    out_ext = ext
+                    if ext in ('.wav', '.flac', '.wma'):
+                        out_ext = '.mp3'
+                    temp_out_audio = os.path.join(out_dir, "zipcomp_" + os.path.splitext(filename)[0] + out_ext)
+                    success = compress_audio(file_path, temp_out_audio, file_target_mb, 1.0, lambda x: None)
+                    temp_out = temp_out_audio
                 elif ext in ('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'):
-                    success = compress_video(file_path, out_dir, file_target_mb, 1.0, lambda x: None)
+                    out_ext = ext
+                    if ext == '.wmv':
+                        out_ext = '.mp4'
+                    temp_out_video = os.path.join(out_dir, "zipcomp_" + os.path.splitext(filename)[0] + out_ext)
+                    success = compress_video(file_path, temp_out_video, file_target_mb, 1.0, lambda x: None)
+                    temp_out = temp_out_video
                 elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'):
                     success = compress_image(file_path, temp_out, file_target_mb, 1.0, lambda x: None)
                 elif ext == '.pdf':
@@ -695,8 +801,9 @@ def compress_zip(input_path, output_path, max_size_mb, log_callback=print, progr
                     success = compress_docx_pptx(file_path, temp_out, file_target_mb, lambda x: None)
                     
                 if success:
-                    if os.path.exists(temp_out):
-                        os.replace(temp_out, file_path)
+                    actual_out = success if isinstance(success, str) else temp_out
+                    if os.path.exists(actual_out):
+                        os.replace(actual_out, file_path)
                 else:
                     if os.path.exists(temp_out):
                         os.remove(temp_out)
@@ -723,24 +830,22 @@ def compress_zip(input_path, output_path, max_size_mb, log_callback=print, progr
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-def compress_file(input_file, output_dir, max_size_mb=15.0, speed=1.0, image_scale=1.0, log_callback=print, progress_callback=None, target_format=None, preset="medium", hw_accel="Auto-Detect"):
+def compress_file(input_file, output_dir, max_size_mb=15.0, speed=1.0, image_scale=1.0, log_callback=print, progress_callback=None, target_format=None, preset="ultrafast", hw_accel="Auto-Detect", naming_pattern="{filename}_compressed"):
     if not os.path.isfile(input_file):
         log_callback(f"Error: Input file '{input_file}' not found.")
-        return False
+        return None
         
     os.makedirs(output_dir, exist_ok=True)
     filename = os.path.basename(input_file)
-    _, ext = os.path.splitext(input_file.lower())
+    base, ext = os.path.splitext(filename)
     
     log_callback(f"Processing compression for {filename} (target: {max_size_mb} MB)")
     
-    success = False
-    
+    # Determine the target extension out_ext
     audio_formats = ('mp3', 'm4a', 'wav', 'flac', 'ogg', 'aac', 'wma')
     video_formats = ('mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv')
     image_formats = ('jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff')
     
-    # Decide which engine to run
     is_audio = False
     is_video = False
     is_image = False
@@ -750,68 +855,77 @@ def compress_file(input_file, output_dir, max_size_mb=15.0, speed=1.0, image_sca
     if tgt_fmt and tgt_fmt != "keep original":
         if tgt_fmt in audio_formats:
             is_audio = True
+            out_ext = "." + tgt_fmt
         elif tgt_fmt in video_formats:
             is_video = True
+            out_ext = "." + tgt_fmt
         elif tgt_fmt in image_formats:
             is_image = True
-    else:
-        if ext[1:] in audio_formats:
-            is_audio = True
-        elif ext[1:] in video_formats:
-            is_video = True
-        elif ext[1:] in image_formats:
-            is_image = True
-            
-    if is_audio:
-        success = compress_audio(input_file, output_dir, max_size_mb, speed, log_callback, progress_callback, target_format)
-    elif is_video:
-        success = compress_video(input_file, output_dir, max_size_mb, speed, log_callback, progress_callback, target_format, preset, hw_accel)
-    elif is_image:
-        if target_format and target_format.lower() != "keep original":
-            out_ext = "." + target_format.lower().replace(".", "")
+            out_ext = "." + tgt_fmt
         else:
-            out_ext = ext
-        output_file = os.path.join(output_dir, filename.replace(ext, out_ext))
-        success = compress_image(input_file, output_file, max_size_mb, image_scale, log_callback, progress_callback)
-    elif ext == '.pdf':
-        output_file = os.path.join(output_dir, filename)
-        success = compress_pdf(input_file, output_file, max_size_mb, log_callback, progress_callback)
-    elif ext in ('.docx', '.pptx', '.xlsx'):
-        output_file = os.path.join(output_dir, filename)
-        success = compress_docx_pptx(input_file, output_file, max_size_mb, log_callback, progress_callback)
-    elif ext == '.zip':
-        output_file = os.path.join(output_dir, filename)
-        success = compress_zip(input_file, output_file, max_size_mb, log_callback, progress_callback)
+            out_ext = "." + tgt_fmt
+    else:
+        if ext[1:].lower() in audio_formats:
+            is_audio = True
+            out_ext = ext.lower()
+            if out_ext in ('.wav', '.flac', '.wma'):
+                out_ext = '.mp3'
+        elif ext[1:].lower() in video_formats:
+            is_video = True
+            out_ext = ext.lower()
+            if out_ext == '.wmv':
+                out_ext = '.mp4'
+        elif ext[1:].lower() in image_formats:
+            is_image = True
+            out_ext = ext.lower()
+        else:
+            out_ext = ext.lower()
+            
+    # Format naming pattern
+    pattern = naming_pattern or "{filename}_compressed"
+    out_name = pattern.replace("{filename}", base)
+    out_name = out_name.replace("{size}", f"{max_size_mb}MB")
+    out_name = out_name.replace("{preset}", str(preset))
+    out_name = out_name.replace("{date}", datetime.datetime.now().strftime("%Y-%m-%d"))
+    
+    output_file_path = get_non_colliding_path(input_file, output_dir, out_name, out_ext)
+    log_callback(f"Target non-colliding output path: {output_file_path}")
+    
+    success = False
+    
+    if is_audio:
+        res = compress_audio(input_file, output_file_path, max_size_mb, speed, log_callback, progress_callback)
+        success = (res is not None)
+    elif is_video:
+        res = compress_video(input_file, output_file_path, max_size_mb, speed, log_callback, progress_callback, preset, hw_accel)
+        success = (res is not None)
+    elif is_image:
+        success = compress_image(input_file, output_file_path, max_size_mb, image_scale, log_callback, progress_callback)
+    elif ext.lower() == '.pdf':
+        success = compress_pdf(input_file, output_file_path, max_size_mb, log_callback, progress_callback)
+    elif ext.lower() in ('.docx', '.pptx', '.xlsx'):
+        success = compress_docx_pptx(input_file, output_file_path, max_size_mb, log_callback, progress_callback)
+    elif ext.lower() == '.zip':
+        success = compress_zip(input_file, output_file_path, max_size_mb, log_callback, progress_callback)
     else:
         log_callback(f"Error: Unsupported file extension '{ext}'")
-        return False
+        return None
         
     if success:
-        if target_format and target_format.lower() != "keep original":
-            out_ext = "." + target_format.lower().replace(".", "")
-        else:
-            out_ext = ext
-            if ext in ('.wav', '.flac', '.wma'):
-                out_ext = '.mp3'
-            elif ext in ('.wmv',):
-                out_ext = '.mp4'
-            
-        base, _ = os.path.splitext(filename)
-        output_file_path = os.path.join(output_dir, base + out_ext)
         if os.path.exists(output_file_path):
             final_size = os.path.getsize(output_file_path)
             final_size_mb = final_size / (1024 * 1024)
             log_callback(f"Verification: output size is {final_size_mb:.2f} MB")
             if final_size_mb <= max_size_mb:
                 log_callback("SUCCESS: File size is under the target limit.")
-                return True
+                return output_file_path
             else:
                 log_callback("WARNING: Compressed size still exceeds the target limit.")
-                return False
-    return False
+                return output_file_path
+    return None
 
 class CompressionTask:
-    def __init__(self, input_path, output_dir, target_size, speed, image_scale, target_format=None, preset="medium", hw_accel="Auto-Detect"):
+    def __init__(self, input_path, output_dir, target_size, speed, image_scale, target_format=None, preset="ultrafast", hw_accel="Auto-Detect"):
         self.id = str(uuid.uuid4())
         self.input_path = input_path
         self.output_dir = output_dir
@@ -827,9 +941,9 @@ class CompressionTask:
         self.output_file_path = ""
 
 class QueueManager:
-    def __init__(self, max_workers=2):
+    def __init__(self, max_workers=None):
         self.tasks = []
-        self.max_workers = max_workers
+        self.max_workers = max_workers if max_workers is not None else (os.cpu_count() or 2)
         self.active_workers = {}  # task_id -> Thread
         self.lock = threading.Lock()
         self.is_running = False
@@ -849,7 +963,7 @@ class QueueManager:
                         return True
             return False
 
-    def update_task_settings(self, task_id, target_size, speed, image_scale, target_format=None, preset="medium", hw_accel="Auto-Detect"):
+    def update_task_settings(self, task_id, target_size, speed, image_scale, target_format=None, preset="ultrafast", hw_accel="Auto-Detect", naming_pattern="{filename}_compressed"):
         with self.lock:
             for t in self.tasks:
                 if t.id == task_id:
@@ -860,6 +974,7 @@ class QueueManager:
                         t.target_format = target_format
                         t.preset = preset
                         t.hw_accel = hw_accel
+                        t.naming_pattern = naming_pattern
                         return True
             return False
 
@@ -906,26 +1021,19 @@ class QueueManager:
             if self.on_task_update_cb:
                 self.on_task_update_cb(task.id)
 
-        def progress_cb(prog):
+        def progress_cb(prog, metrics=None):
             task.progress = prog
+            if metrics:
+                task.current_metrics = metrics
             if self.on_task_update_cb:
                 self.on_task_update_cb(task.id)
 
-        filename = os.path.basename(task.input_path)
-        base, ext = os.path.splitext(filename.lower())
-        
-        if task.target_format and task.target_format.lower() != "keep original":
-            out_ext = "." + task.target_format.lower().replace(".", "")
-        else:
-            out_ext = ext
-            if ext in ('.wav', '.flac', '.wma'):
-                out_ext = '.mp3'
-            elif ext in ('.wmv',):
-                out_ext = '.mp4'
-                
-        task.output_file_path = os.path.join(task.output_dir, base + out_ext)
-
-        success = compress_file(
+        # Resolve custom naming pattern
+        pattern = getattr(task, "naming_pattern", "{filename}_compressed")
+        if not pattern:
+            pattern = "{filename}_compressed"
+            
+        res_path = compress_file(
             task.input_path,
             task.output_dir,
             task.target_size,
@@ -935,12 +1043,25 @@ class QueueManager:
             progress_cb,
             target_format=task.target_format,
             preset=task.preset,
-            hw_accel=task.hw_accel
+            hw_accel=task.hw_accel,
+            naming_pattern=pattern
         )
+
+        success = (res_path is not None)
+        if success:
+            task.output_file_path = res_path
 
         with self.lock:
             task.status = "Success" if success else "Failed"
             task.progress = 100.0 if success else task.progress
+
+        if not success:
+            # Trigger Self-Healing framework!
+            healed = SelfHealer.self_heal_failed_task(task, log_cb)
+            if healed:
+                if self.on_task_update_cb:
+                    self.on_task_update_cb(task.id)
+                return
 
         if self.on_task_complete_cb:
             self.on_task_complete_cb(task.id, success)
@@ -948,7 +1069,7 @@ class QueueManager:
 class AudioCompressorGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Media Compressor Pro v0.5")
+        self.root.title("Media Compressor Pro v2.0")
         self.root.geometry("1220x730")
         self.root.minsize(1050, 620)
         
@@ -958,14 +1079,14 @@ class AudioCompressorGUI:
         
         # State variables
         self.input_path_var = tk.StringVar()
-        self.output_path_var = tk.StringVar(value=r"c:\Dev\tools\Compress\DONE")
+        self.output_path_var = tk.StringVar(value="")
         self.size_var = tk.StringVar(value="15.0")
         self.speed_var = tk.DoubleVar(value=1.0)
         self.image_scale_var = tk.IntVar(value=100)
-        self.same_folder_var = tk.IntVar(value=0)
         self.target_format_var = tk.StringVar(value="Keep Original")
-        self.video_preset_var = tk.StringVar(value="medium")
-        self.hw_accel_var = tk.StringVar(value="Auto-Detect (Recommended)")
+        self.video_preset_var = tk.StringVar(value="ultrafast")
+        self.hw_accel_var = tk.StringVar(value="Auto-Detect")
+        self.naming_pattern_var = tk.StringVar(value="{filename}_compressed")
         
         self.selected_input_files = []
         self.selected_task_id = None
@@ -973,7 +1094,7 @@ class AudioCompressorGUI:
         self.task_cards = {}
         
         # Queue Manager Setup
-        self.queue_manager = QueueManager(max_workers=2)
+        self.queue_manager = QueueManager(max_workers=os.cpu_count() or 2)
         self.queue_manager.start_processing(self.on_task_update, self.on_task_complete)
         
         # UI Elements Creation
@@ -998,30 +1119,15 @@ class AudioCompressorGUI:
         header_bar.grid(row=0, column=0, sticky="ew")
         header_bar.grid_propagate(False)
         
-        lbl_title = ctk.CTkLabel(header_bar, text="⚡ MEDIA COMPRESSOR PRO", font=("Segoe UI", 15, "bold"), text_color="#3498db")
+        lbl_title = ctk.CTkLabel(header_bar, text="⚡ MEDIA COMPRESSOR PRO", font=("Segoe UI", 18, "bold"), text_color="#3498db")
         lbl_title.pack(side=tk.LEFT, padx=20)
         
         # Global Controls
-        btn_start_q = ctk.CTkButton(header_bar, text="▶ Start Queue", width=100, height=28, fg_color="#2ecc71", hover_color="#27ae60", text_color="#ffffff", command=self.start_queue_processing)
-        btn_start_q.pack(side=tk.LEFT, padx=10)
+        self.btn_toggle_queue = ctk.CTkButton(header_bar, text="▶ Start Queue", font=("Segoe UI", 13, "bold"), width=130, height=32, fg_color="#2ecc71", hover_color="#27ae60", text_color="#ffffff", command=self.toggle_queue_processing)
+        self.btn_toggle_queue.pack(side=tk.LEFT, padx=10)
         
-        btn_stop_q = ctk.CTkButton(header_bar, text="⏸ Pause Queue", width=100, height=28, fg_color="#e67e22", hover_color="#d35400", text_color="#ffffff", command=self.stop_queue_processing)
-        btn_stop_q.pack(side=tk.LEFT, padx=5)
-        
-        btn_clear_q = ctk.CTkButton(header_bar, text="🧹 Clear Completed", width=120, height=28, fg_color="#7f8c8d", hover_color="#95a5a6", text_color="#ffffff", command=self.clear_completed_tasks)
+        btn_clear_q = ctk.CTkButton(header_bar, text="🧹 Clear Completed", font=("Segoe UI", 13, "bold"), width=150, height=32, fg_color="#7f8c8d", hover_color="#95a5a6", text_color="#ffffff", command=self.clear_completed_tasks)
         btn_clear_q.pack(side=tk.LEFT, padx=5)
-        
-        # Max Threads selector
-        lbl_threads = ctk.CTkLabel(header_bar, text="Max Threads:", font=("Segoe UI", 11, "bold"))
-        lbl_threads.pack(side=tk.LEFT, padx=(20, 5))
-        
-        self.combo_threads = ctk.CTkComboBox(header_bar, values=["1", "2", "3", "4", "6", "8"], width=65, height=28, command=self.change_max_threads)
-        self.combo_threads.set("2")
-        self.combo_threads.pack(side=tk.LEFT)
-        
-        # Theme Toggle Switch
-        self.switch_theme = ctk.CTkSwitch(header_bar, text="Light Theme", font=("Segoe UI", 11), command=self.toggle_theme)
-        self.switch_theme.pack(side=tk.RIGHT, padx=20)
         
         # --- MAIN PANEL CONTAINER ---
         container = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -1036,73 +1142,53 @@ class AudioCompressorGUI:
         left_panel = ctk.CTkFrame(container)
         left_panel.grid(row=0, column=0, sticky="nsew", padx=5)
         
-        lbl_sec_settings = ctk.CTkLabel(left_panel, text="COMPRESSION CONFIG", font=("Segoe UI", 12, "bold"), text_color="#aaaaaa")
+        lbl_sec_settings = ctk.CTkLabel(left_panel, text="COMPRESSION CONFIG", font=("Segoe UI", 14, "bold"), text_color="#aaaaaa")
         lbl_sec_settings.pack(anchor="w", pady=(0, 10))
         
         # Browse input files
-        lbl_input = ctk.CTkLabel(left_panel, text="Input File(s) or Folder:", font=("Segoe UI", 11, "bold"))
+        lbl_input = ctk.CTkLabel(left_panel, text="Input File(s) or Folder:", font=("Segoe UI", 13, "bold"))
         lbl_input.pack(anchor="w", pady=(0, 2))
         
         input_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
         input_frame.pack(fill=tk.X, pady=(0, 4))
-        self.entry_input = ctk.CTkEntry(input_frame, textvariable=self.input_path_var, font=("Segoe UI", 10))
+        self.entry_input = ctk.CTkEntry(input_frame, textvariable=self.input_path_var, font=("Segoe UI", 12))
         self.entry_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         browse_buttons_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
         browse_buttons_frame.pack(fill=tk.X, pady=(0, 8))
-        btn_browse_file = ctk.CTkButton(browse_buttons_frame, text="📄 File(s)...", width=100, height=26, command=self.browse_input)
+        btn_browse_file = ctk.CTkButton(browse_buttons_frame, text="📄 File(s)...", font=("Segoe UI", 12), width=100, height=28, command=self.browse_input)
         btn_browse_file.pack(side=tk.LEFT, padx=(0, 5))
-        btn_browse_dir = ctk.CTkButton(browse_buttons_frame, text="📁 Folder...", width=100, height=26, command=self.browse_folder)
+        btn_browse_dir = ctk.CTkButton(browse_buttons_frame, text="📁 Folder...", font=("Segoe UI", 12), width=100, height=28, command=self.browse_folder)
         btn_browse_dir.pack(side=tk.LEFT)
         
-        # Same Folder checkbox
-        self.chk_same_folder = ctk.CTkCheckBox(left_panel, text="Save in same folder as input", font=("Segoe UI", 11), variable=self.same_folder_var, command=self.toggle_same_folder)
-        self.chk_same_folder.pack(anchor="w", pady=(0, 10))
-        
         # Browse output folder
-        self.lbl_output = ctk.CTkLabel(left_panel, text="Output Directory:", font=("Segoe UI", 11, "bold"))
+        self.lbl_output = ctk.CTkLabel(left_panel, text="Output Directory:", font=("Segoe UI", 13, "bold"))
         self.lbl_output.pack(anchor="w", pady=(0, 2))
         
         self.output_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
         self.output_frame.pack(fill=tk.X, pady=(0, 10))
-        self.entry_output = ctk.CTkEntry(self.output_frame, textvariable=self.output_path_var, font=("Segoe UI", 10))
+        self.entry_output = ctk.CTkEntry(self.output_frame, textvariable=self.output_path_var, font=("Segoe UI", 12))
         self.entry_output.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        self.btn_browse_out = ctk.CTkButton(self.output_frame, text="Browse...", width=70, command=self.browse_output)
+        self.btn_browse_out = ctk.CTkButton(self.output_frame, text="Browse...", font=("Segoe UI", 12), width=90, height=28, command=self.browse_output)
         self.btn_browse_out.pack(side=tk.RIGHT)
         
-        # Parameter row (Size limit, target format, preset)
-        lbl_size_title = ctk.CTkLabel(left_panel, text="Target Size Limit (MB):", font=("Segoe UI", 11, "bold"))
+        # Parameter row (Size limit, target format)
+        lbl_size_title = ctk.CTkLabel(left_panel, text="Target Size Limit (MB):", font=("Segoe UI", 13, "bold"))
         lbl_size_title.pack(anchor="w", pady=(0, 2))
         size_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
         size_frame.pack(fill=tk.X, pady=(0, 10))
-        self.entry_size = ctk.CTkEntry(size_frame, textvariable=self.size_var, width=70, font=("Segoe UI", 10))
+        self.entry_size = ctk.CTkEntry(size_frame, textvariable=self.size_var, width=80, font=("Segoe UI", 12))
         self.entry_size.pack(side=tk.LEFT)
         
         # Target format conversion selection
-        lbl_fmt_title = ctk.CTkLabel(left_panel, text="Convert Target Format:", font=("Segoe UI", 11, "bold"))
+        lbl_fmt_title = ctk.CTkLabel(left_panel, text="Convert Target Format:", font=("Segoe UI", 13, "bold"))
         lbl_fmt_title.pack(anchor="w", pady=(0, 2))
         format_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
         format_frame.pack(fill=tk.X, pady=(0, 10))
-        self.combo_format = ctk.CTkOptionMenu(format_frame, variable=self.target_format_var, values=["Keep Original"], width=150)
+        self.combo_format = ctk.CTkOptionMenu(format_frame, variable=self.target_format_var, values=["Keep Original"], font=("Segoe UI", 12), width=160)
         self.combo_format.pack(side=tk.LEFT)
         
-        # Encoding Speed Preset
-        lbl_preset_title = ctk.CTkLabel(left_panel, text="Encoding Speed Preset (Video/VP9):", font=("Segoe UI", 11, "bold"))
-        lbl_preset_title.pack(anchor="w", pady=(0, 2))
-        preset_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
-        preset_frame.pack(fill=tk.X, pady=(0, 10))
-        self.combo_preset = ctk.CTkOptionMenu(preset_frame, variable=self.video_preset_var, values=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"], width=150)
-        self.combo_preset.pack(side=tk.LEFT)
-        
-        # Hardware Acceleration Option Menu
-        lbl_accel_title = ctk.CTkLabel(left_panel, text="Hardware Acceleration (Video):", font=("Segoe UI", 11, "bold"))
-        lbl_accel_title.pack(anchor="w", pady=(0, 2))
-        accel_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
-        accel_frame.pack(fill=tk.X, pady=(0, 10))
-        self.combo_accel = ctk.CTkOptionMenu(accel_frame, variable=self.hw_accel_var, values=["Auto-Detect (Recommended)", "CPU (Software)", "Nvidia NVENC", "AMD AMF", "Intel QSV", "Windows MediaFoundation"], width=200)
-        self.combo_accel.pack(side=tk.LEFT)
-        
-        self.lbl_conditional_status = ctk.CTkLabel(left_panel, text="", font=("Segoe UI", 9, "italic"))
+        self.lbl_conditional_status = ctk.CTkLabel(left_panel, text="", font=("Segoe UI", 11, "italic"))
         self.lbl_conditional_status.pack(anchor="w", pady=(0, 5))
         
         # Conditional Options Container Frame
@@ -1111,48 +1197,73 @@ class AudioCompressorGUI:
         
         # Speed Frame (Audio/Video speed adjuster)
         self.speed_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6)
-        lbl_speed = ctk.CTkLabel(self.speed_frame, text="Playback Speed:", font=("Segoe UI", 11, "bold"))
+        lbl_speed = ctk.CTkLabel(self.speed_frame, text="Playback Speed:", font=("Segoe UI", 13, "bold"))
         lbl_speed.pack(anchor="w")
         self.speed_slider = ctk.CTkSlider(self.speed_frame, from_=0.5, to=3.0, number_of_steps=25, variable=self.speed_var, command=self.update_speed_preview)
         self.speed_slider.pack(fill=tk.X, expand=True, pady=5)
         
         lbl_speed_val_frame = ctk.CTkFrame(self.speed_frame, fg_color="transparent")
         lbl_speed_val_frame.pack(fill=tk.X)
-        self.lbl_speed_val = ctk.CTkLabel(lbl_speed_val_frame, text="1.0x", font=("Segoe UI", 10, "bold"))
+        self.lbl_speed_val = ctk.CTkLabel(lbl_speed_val_frame, text="1.0x", font=("Segoe UI", 12, "bold"))
         self.lbl_speed_val.pack(side=tk.LEFT)
-        self.lbl_speed_preview = ctk.CTkLabel(lbl_speed_val_frame, text="Duration: 00:00 ➔ 00:00", font=("Segoe UI", 9, "italic"), text_color="#aaaaaa")
+        self.lbl_speed_preview = ctk.CTkLabel(lbl_speed_val_frame, text="Duration: 00:00 ➔ 00:00", font=("Segoe UI", 11, "italic"), text_color="#aaaaaa")
         self.lbl_speed_preview.pack(side=tk.RIGHT)
         
         # Image Resize Frame (Image dimensions scaling)
         self.image_resize_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6)
-        lbl_scale = ctk.CTkLabel(self.image_resize_frame, text="Resize Scale (Dimensions):", font=("Segoe UI", 11, "bold"))
+        lbl_scale = ctk.CTkLabel(self.image_resize_frame, text="Resize Scale (Dimensions):", font=("Segoe UI", 13, "bold"))
         lbl_scale.pack(anchor="w")
         self.image_slider = ctk.CTkSlider(self.image_resize_frame, from_=10, to=100, number_of_steps=90, variable=self.image_scale_var, command=self.update_image_preview)
         self.image_slider.pack(fill=tk.X, expand=True, pady=5)
         
         lbl_image_val_frame = ctk.CTkFrame(self.image_resize_frame, fg_color="transparent")
         lbl_image_val_frame.pack(fill=tk.X)
-        self.lbl_image_scale_val = ctk.CTkLabel(lbl_image_val_frame, text="100%", font=("Segoe UI", 10, "bold"))
+        self.lbl_image_scale_val = ctk.CTkLabel(lbl_image_val_frame, text="100%", font=("Segoe UI", 12, "bold"))
         self.lbl_image_scale_val.pack(side=tk.LEFT)
-        self.lbl_image_preview = ctk.CTkLabel(lbl_image_val_frame, text="Resolution: 0x0 ➔ 0x0 px", font=("Segoe UI", 9, "italic"), text_color="#aaaaaa")
+        self.lbl_image_preview = ctk.CTkLabel(lbl_image_val_frame, text="Resolution: 0x0 ➔ 0x0 px", font=("Segoe UI", 11, "italic"), text_color="#aaaaaa")
         self.lbl_image_preview.pack(side=tk.RIGHT)
         
         # Action Buttons
-        self.btn_action = ctk.CTkButton(left_panel, text="➕ Add to Queue", font=("Segoe UI", 12, "bold"), fg_color="#1f538d", hover_color="#143d66", height=35, command=self.add_to_queue)
+        self.btn_action = ctk.CTkButton(left_panel, text="➕ Add to Queue", font=("Segoe UI", 14, "bold"), fg_color="#1f538d", hover_color="#143d66", height=35, command=self.add_to_queue)
         self.btn_action.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
         
-        self.btn_cancel_edit = ctk.CTkButton(left_panel, text="Cancel Edit", font=("Segoe UI", 10), fg_color="#555555", hover_color="#444444", height=25, command=self.cancel_edit)
+        self.btn_cancel_edit = ctk.CTkButton(left_panel, text="Cancel Edit", font=("Segoe UI", 12), fg_color="#555555", hover_color="#444444", height=25, command=self.cancel_edit)
         
         # --- 2. MIDDLE PANEL (Active Queue) ---
         mid_panel = ctk.CTkFrame(container)
         mid_panel.grid(row=0, column=1, sticky="nsew", padx=5)
         
-        lbl_sec_queue = ctk.CTkLabel(mid_panel, text="PROCESSING QUEUE", font=("Segoe UI", 12, "bold"), text_color="#aaaaaa")
+        lbl_sec_queue = ctk.CTkLabel(mid_panel, text="PROCESSING QUEUE", font=("Segoe UI", 14, "bold"), text_color="#aaaaaa")
         lbl_sec_queue.pack(anchor="w", pady=(0, 10))
         
-        # Scrollable container for queue cards
-        self.queue_scroll_frame = ctk.CTkScrollableFrame(mid_panel, fg_color="transparent")
-        self.queue_scroll_frame.pack(fill=tk.BOTH, expand=True)
+        # Buttons row for Queue CRUD actions
+        queue_actions_frame = ctk.CTkFrame(mid_panel, fg_color="transparent")
+        queue_actions_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.btn_edit_task = ctk.CTkButton(queue_actions_frame, text="✏️ Edit Selected", font=("Segoe UI", 11, "bold"), width=110, height=28, fg_color="#1f538d", hover_color="#143d66", command=self.edit_selected_task)
+        self.btn_edit_task.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.btn_delete_task = ctk.CTkButton(queue_actions_frame, text="🗑️ Delete Selected", font=("Segoe UI", 11, "bold"), width=120, height=28, fg_color="#e74c3c", hover_color="#c0392b", command=self.delete_selected_task)
+        self.btn_delete_task.pack(side=tk.LEFT)
+
+        # Embed and style Treeview for queue list (spreadsheet style)
+        self.queue_tree = ttk.Treeview(
+            mid_panel, columns=("SNo", "FileName", "Status"),
+            show="headings", selectmode="browse"
+        )
+        self.queue_tree.pack(fill=tk.BOTH, expand=True)
+        
+        # Configure columns
+        self.queue_tree.heading("SNo", text="S.No.", anchor=tk.CENTER)
+        self.queue_tree.heading("FileName", text="File Name", anchor=tk.W)
+        self.queue_tree.heading("Status", text="Status", anchor=tk.CENTER)
+        
+        self.queue_tree.column("SNo", width=50, minwidth=40, stretch=tk.FALSE, anchor=tk.CENTER)
+        self.queue_tree.column("FileName", width=250, minwidth=150, stretch=tk.TRUE)
+        self.queue_tree.column("Status", width=130, minwidth=100, stretch=tk.FALSE, anchor=tk.CENTER)
+        
+        self.queue_tree.bind("<<TreeviewSelect>>", self.on_queue_tree_select)
+        self.queue_tree.bind("<Delete>", self.on_queue_tree_delete)
         
         # --- 3. RIGHT PANEL (Task Details, Logs & Directory Listing) ---
         right_panel = ctk.CTkFrame(container)
@@ -1169,16 +1280,16 @@ class AudioCompressorGUI:
         tab_task.grid_rowconfigure(2, weight=1)
         tab_task.grid_columnconfigure(0, weight=1)
         
-        self.lbl_preview_info = ctk.CTkLabel(tab_task, text="Select a task in the queue to view details", font=("Segoe UI", 11), justify=tk.LEFT, anchor="w")
+        self.lbl_preview_info = ctk.CTkLabel(tab_task, text="Select a task in the queue to view details", font=("Segoe UI", 13), justify=tk.LEFT, anchor="w")
         self.lbl_preview_info.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         
         self.lbl_preview_img = ctk.CTkLabel(tab_task, text="", anchor=tk.CENTER)
         self.lbl_preview_img.grid(row=1, column=0, sticky="ew", pady=5)
         
-        lbl_logs = ctk.CTkLabel(tab_task, text="Live Output Logs:", font=("Segoe UI", 10, "bold"), text_color="#aaaaaa")
+        lbl_logs = ctk.CTkLabel(tab_task, text="Live Output Logs:", font=("Segoe UI", 12, "bold"), text_color="#aaaaaa")
         lbl_logs.grid(row=2, column=0, sticky="w", pady=(5, 0))
         
-        self.log_textbox = ctk.CTkTextbox(tab_task, font=("Consolas", 9), state=tk.DISABLED, wrap="none")
+        self.log_textbox = ctk.CTkTextbox(tab_task, font=("Consolas", 11), state=tk.DISABLED, wrap="none")
         self.log_textbox.grid(row=3, column=0, sticky="nsew", pady=(5, 0))
         
         # TAB 2: Output Folder Preview
@@ -1200,14 +1311,15 @@ class AudioCompressorGUI:
             fieldbackground="#2d2d2d",
             bordercolor="#1e1e1e",
             borderwidth=0,
-            rowheight=25
+            rowheight=30,
+            font=("Segoe UI", 11)
         )
         self.style.map("Treeview", background=[("selected", "#1f538d")])
         self.style.configure("Treeview.Heading", 
             background="#1a1a1a",
             foreground="#ffffff",
             relief="flat",
-            font=("Segoe UI", 9, "bold")
+            font=("Segoe UI", 11, "bold")
         )
         self.style.map("Treeview.Heading", background=[("active", "#2a2a2a")])
         
@@ -1232,18 +1344,8 @@ class AudioCompressorGUI:
         self.status_bar = ctk.CTkFrame(self.root, height=25, corner_radius=0, fg_color="#1a1a1a")
         self.status_bar.grid(row=2, column=0, sticky="ew")
         
-        self.lbl_status_bar = ctk.CTkLabel(self.status_bar, text="Queue Status: Idle | Total Tasks: 0 | Completed: 0 | Failed: 0 | Active Workers: 0", font=("Segoe UI", 10))
+        self.lbl_status_bar = ctk.CTkLabel(self.status_bar, text="Queue Status: Idle | Total Tasks: 0 | Completed: 0 | Failed: 0 | Active Workers: 0", font=("Segoe UI", 12))
         self.lbl_status_bar.pack(side=tk.LEFT, padx=20)
-
-    def toggle_same_folder(self):
-        if self.same_folder_var.get() == 1:
-            self.entry_output.configure(state="disabled")
-            self.btn_browse_out.configure(state="disabled")
-            self.lbl_output.configure(text_color="#555555")
-        else:
-            self.entry_output.configure(state="normal")
-            self.btn_browse_out.configure(state="normal")
-            self.lbl_output.configure(text_color="#ffffff")
 
     def update_format_choices(self, ext):
         ext_lower = ext.lower()
@@ -1344,6 +1446,11 @@ class AudioCompressorGUI:
 
     def on_path_changed(self, *args):
         file_path = self.input_path_var.get().strip()
+        if file_path:
+            if os.path.isdir(file_path):
+                self.output_path_var.set(file_path)
+            elif os.path.isfile(file_path):
+                self.output_path_var.set(os.path.dirname(file_path))
         if len(self.selected_input_files) <= 1:
             self.start_probing(file_path)
 
@@ -1452,7 +1559,7 @@ class AudioCompressorGUI:
             self.tree_folder.delete(item)
             
         output_dir = self.output_path_var.get().strip()
-        if not output_dir or not os.path.isdir(output_dir) or self.same_folder_var.get() == 1:
+        if not output_dir or not os.path.isdir(output_dir):
             return
             
         try:
@@ -1558,7 +1665,7 @@ class AudioCompressorGUI:
             messagebox.showerror("Error", "Please select an input file.")
             return
             
-        if self.same_folder_var.get() == 0 and not output_dir:
+        if not output_dir:
             messagebox.showerror("Error", "Please select an output directory.")
             return
             
@@ -1577,12 +1684,12 @@ class AudioCompressorGUI:
         video_preset = self.video_preset_var.get()
         hw_accel_raw = self.hw_accel_var.get()
         hw_accel = hw_accel_raw.split(" (")[0] if " (" in hw_accel_raw else hw_accel_raw
+        naming_pattern = self.naming_pattern_var.get()
         
         files_to_add = self.selected_input_files if self.selected_input_files else [input_file]
         
         for file_path in files_to_add:
-            # Resolve same folder dynamically
-            task_output_dir = os.path.dirname(file_path) if self.same_folder_var.get() == 1 else output_dir
+            task_output_dir = output_dir
             
             _, ext = os.path.splitext(file_path.lower())
             audio_exts = ('.mp3', '.m4a', '.wav', '.flac', '.ogg', '.aac', '.wma')
@@ -1600,7 +1707,7 @@ class AudioCompressorGUI:
                 except ValueError:
                     pass
                     
-            task = CompressionTask(file_path, task_output_dir, max_size_mb, speed, image_scale, target_format, video_preset, hw_accel)
+            task = CompressionTask(file_path, task_output_dir, max_size_mb, speed, image_scale, target_format, video_preset, hw_accel, naming_pattern)
             self.queue_manager.add_task(task)
             
         # Reset input selection
@@ -1622,20 +1729,9 @@ class AudioCompressorGUI:
         self.output_path_var.set(task.output_dir)
         self.size_var.set(str(task.target_size))
         self.target_format_var.set(task.target_format if task.target_format else "Keep Original")
-        self.video_preset_var.set(task.preset if task.preset else "medium")
-        
-        if task.hw_accel:
-            hw_map = {
-                "Auto-Detect": "Auto-Detect (Recommended)",
-                "CPU": "CPU (Software)",
-                "Nvidia NVENC": "Nvidia NVENC",
-                "AMD AMF": "AMD AMF",
-                "Intel QSV": "Intel QSV",
-                "Windows MediaFoundation": "Windows MediaFoundation"
-            }
-            self.hw_accel_var.set(hw_map.get(task.hw_accel, "Auto-Detect (Recommended)"))
-        else:
-            self.hw_accel_var.set("Auto-Detect (Recommended)")
+        self.video_preset_var.set(task.preset if task.preset else "ultrafast")
+        self.naming_pattern_var.set(task.naming_pattern if getattr(task, "naming_pattern", None) else "{filename}_compressed")
+        self.hw_accel_var.set(task.hw_accel if task.hw_accel else "Auto-Detect")
         
         _, ext = os.path.splitext(task.input_path.lower())
         self.update_format_choices(ext)
@@ -1673,6 +1769,7 @@ class AudioCompressorGUI:
         video_preset = self.video_preset_var.get()
         hw_accel_raw = self.hw_accel_var.get()
         hw_accel = hw_accel_raw.split(" (")[0] if " (" in hw_accel_raw else hw_accel_raw
+        naming_pattern = self.naming_pattern_var.get()
         
         _, ext = os.path.splitext(self.input_path_var.get().lower())
         audio_exts = ('.mp3', '.m4a', '.wav', '.flac', '.ogg', '.aac', '.wma')
@@ -1684,7 +1781,7 @@ class AudioCompressorGUI:
         elif ext in image_exts:
             image_scale = int(self.image_scale_var.get()) / 100.0
             
-        success = self.queue_manager.update_task_settings(self.editing_task_id, max_size_mb, speed, image_scale, target_format, video_preset, hw_accel)
+        success = self.queue_manager.update_task_settings(self.editing_task_id, max_size_mb, speed, image_scale, target_format, video_preset, hw_accel, naming_pattern)
         if success:
             self.cancel_edit()
             self.refresh_queue_ui()
@@ -1735,7 +1832,7 @@ class AudioCompressorGUI:
             filename = os.path.basename(task.input_path)
             size_mb = os.path.getsize(task.input_path) / (1024 * 1024)
             info_text = f"File: {filename}\nOriginal Size: {size_mb:.2f} MB\nTarget Limit: {task.target_size} MB\n"
-            info_text += f"Target Format: {task.target_format}\nSpeed Preset: {task.preset}\nStatus: {task.status.upper()}"
+            info_text += f"Target Format: {task.target_format}\nStatus: {task.status.upper()}"
             self.lbl_preview_info.configure(text=info_text)
             
             # Show image thumbnail if image
@@ -1760,105 +1857,58 @@ class AudioCompressorGUI:
             self.show_task_details_and_logs(task)
 
     def refresh_queue_ui(self):
-        for widget in self.queue_scroll_frame.winfo_children():
-            widget.destroy()
+        # Clear all rows in tree
+        for item in self.queue_tree.get_children():
+            self.queue_tree.delete(item)
             
-        self.task_cards.clear()
-        
-        for task in self.queue_manager.tasks:
-            self.create_task_card(task)
-
-    def create_task_card(self, task):
-        # Card frame
-        border_color = "#1f538d" if task.id == self.selected_task_id else "transparent"
-        card = ctk.CTkFrame(self.queue_scroll_frame, corner_radius=6, border_width=1, border_color=border_color, fg_color="#262626")
-        card.pack(fill=tk.X, pady=4, padx=5)
-        
-        # Click selection
-        def on_click(e):
-            self.select_task(task.id)
-            
-        card.bind("<Button-1>", on_click)
-        
-        # Top Row
-        top_row = ctk.CTkFrame(card, fg_color="transparent")
-        top_row.pack(fill=tk.X, padx=8, pady=(4, 0))
-        top_row.bind("<Button-1>", on_click)
-        
-        fname = os.path.basename(task.input_path)
-        lbl_name = ctk.CTkLabel(top_row, text=fname, font=("Segoe UI", 11, "bold"), anchor="w")
-        lbl_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        lbl_name.bind("<Button-1>", on_click)
-        
-        # CRUD operations
-        if task.status == "Pending":
-            btn_edit = ctk.CTkButton(top_row, text="✏️", width=20, height=20, fg_color="transparent", text_color="#1f538d", hover_color="#333333", command=lambda: self.edit_task(task.id))
-            btn_edit.pack(side=tk.RIGHT, padx=2)
-            
-        btn_del = ctk.CTkButton(top_row, text="🗑️", width=20, height=20, fg_color="transparent", text_color="#e74c3c", hover_color="#333333", command=lambda: self.delete_task(task.id))
-        btn_del.pack(side=tk.RIGHT, padx=2)
-        
-        # Details row
-        lbl_details = ctk.CTkLabel(card, text=f"Target: {task.target_size} MB | Format: {task.target_format} | Preset: {task.preset}", font=("Segoe UI", 9), text_color="#aaaaaa", anchor="w")
-        lbl_details.pack(fill=tk.X, padx=8)
-        lbl_details.bind("<Button-1>", on_click)
-        
-        # Progress row
-        prog_row = ctk.CTkFrame(card, fg_color="transparent")
-        prog_row.pack(fill=tk.X, padx=8, pady=(0, 6))
-        prog_row.bind("<Button-1>", on_click)
-        
-        prog_bar = ctk.CTkProgressBar(prog_row, height=6)
-        prog_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        prog_bar.set(task.progress / 100.0)
-        
-        lbl_percent = ctk.CTkLabel(prog_row, text=f"{task.progress:.1f}%", font=("Segoe UI", 9), width=35)
-        lbl_percent.pack(side=tk.RIGHT)
-        lbl_percent.bind("<Button-1>", on_click)
-        
-        # Status Badge
-        status_color = self.get_status_color(task.status)
-        lbl_status = ctk.CTkLabel(prog_row, text=task.status.upper(), font=("Segoe UI", 9, "bold"), text_color=status_color)
-        lbl_status.pack(side=tk.RIGHT, padx=(0, 5))
-        lbl_status.bind("<Button-1>", on_click)
-        
-        # Save refs
-        self.task_cards[task.id] = {
-            "prog_bar": prog_bar,
-            "lbl_percent": lbl_percent,
-            "lbl_status": lbl_status,
-            "lbl_details": lbl_details
+        status_map = {
+            "Pending": "Not processed",
+            "Queued": "Not processed",
+            "Compressing": "Processing",
+            "Success": "Finished",
+            "Failed": "Failed",
+            "Cancelled": "Failed"
         }
-
-    def get_status_color(self, status):
-        if status == "Pending":
-            return "#95a5a6"
-        elif status == "Queued":
-            return "#e67e22"
-        elif status == "Compressing":
-            return "#3498db"
-        elif status == "Success":
-            return "#2ecc71"
-        elif status == "Failed":
-            return "#e74c3c"
-        return "#ffffff"
+        
+        for idx, task in enumerate(self.queue_manager.tasks, start=1):
+            fname = os.path.basename(task.input_path)
+            status_val = status_map.get(task.status, task.status)
+            if task.status == "Compressing":
+                status_val = f"Processing ({task.progress:.0f}%)"
+                
+            self.queue_tree.insert(
+                "", tk.END, iid=task.id,
+                values=(idx, fname, status_val)
+            )
+            
+        if self.selected_task_id and self.queue_tree.exists(self.selected_task_id):
+            self.queue_tree.selection_set(self.selected_task_id)
 
     # --- THREAD WORKER CALLBACKS ---
     
     def on_task_update(self, task_id):
-        # Dispatch to main thread
         self.root.after(0, self._on_task_update_main_thread, task_id)
 
     def _on_task_update_main_thread(self, task_id):
         task = next((t for t in self.queue_manager.tasks if t.id == task_id), None)
-        if task and task.id in self.task_cards:
-            card_widgets = self.task_cards[task.id]
-            card_widgets["prog_bar"].set(task.progress / 100.0)
-            card_widgets["lbl_percent"].configure(text=f"{task.progress:.1f}%")
-            card_widgets["lbl_status"].configure(text=task.status.upper(), text_color=self.get_status_color(task.status))
+        if task:
+            status_map = {
+                "Pending": "Not processed",
+                "Queued": "Not processed",
+                "Compressing": f"Processing ({task.progress:.0f}%)",
+                "Success": "Finished",
+                "Failed": "Failed",
+                "Cancelled": "Failed"
+            }
+            mapped_status = status_map.get(task.status, task.status)
+            
+            if self.queue_tree.exists(task_id):
+                old_values = self.queue_tree.item(task_id, "values")
+                if old_values:
+                    self.queue_tree.item(task_id, values=(old_values[0], old_values[1], mapped_status))
             
             # If selected, show logs
-            if self.selected_task_id == task.id:
+            if self.selected_task_id == task_id:
                 self.show_task_details_and_logs(task)
 
     def on_task_complete(self, task_id, success):
@@ -1866,17 +1916,10 @@ class AudioCompressorGUI:
 
     def _on_task_complete_main_thread(self, task_id, success):
         self.refresh_folder_preview()
+        self._on_task_update_main_thread(task_id)
         
-        # Update card visual
-        self.on_task_update(task_id)
-        
-        # Highlight card status
         task = next((t for t in self.queue_manager.tasks if t.id == task_id), None)
         if task:
-            # Refresh details label if selected
-            if self.selected_task_id == task_id:
-                self.select_task(task_id)
-                
             # AUTO-OPEN behavior: open output folder and highlight output file
             if success and task.output_file_path and os.path.exists(task.output_file_path):
                 path = os.path.normpath(task.output_file_path)
@@ -1884,6 +1927,74 @@ class AudioCompressorGUI:
                     subprocess.Popen(f'explorer /select,"{path}"')
                 except Exception:
                     pass
+
+    def on_queue_tree_select(self, event):
+        selected_items = self.queue_tree.selection()
+        if not selected_items:
+            return
+        
+        task_id = selected_items[0]
+        self.selected_task_id = task_id
+        
+        task = next((t for t in self.queue_manager.tasks if t.id == task_id), None)
+        if task:
+            filename = os.path.basename(task.input_path)
+            size_mb = os.path.getsize(task.input_path) / (1024 * 1024)
+            info_text = f"File: {filename}\nOriginal Size: {size_mb:.2f} MB\nTarget Limit: {task.target_size} MB\n"
+            info_text += f"Target Format: {task.target_format}\nStatus: {task.status.upper()}"
+            self.lbl_preview_info.configure(text=info_text)
+            
+            self.lbl_preview_img.configure(image="")
+            self.lbl_preview_img.image = None
+            _, ext = os.path.splitext(task.input_path.lower())
+            if ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'):
+                try:
+                    img = Image.open(task.input_path)
+                    img_copy = img.copy()
+                    img_copy.thumbnail((160, 160), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(img_copy)
+                    self.lbl_preview_img.configure(image=photo)
+                    self.lbl_preview_img.image = photo
+                except Exception:
+                    pass
+            
+            self.tabview.set("Task Info & Logs")
+            self.show_task_details_and_logs(task)
+
+    def edit_selected_task(self):
+        selected_items = self.queue_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "Please select a task to edit.")
+            return
+        task_id = selected_items[0]
+        self.edit_task(task_id)
+
+    def delete_selected_task(self):
+        selected_items = self.queue_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "Please select a task to delete.")
+            return
+        task_id = selected_items[0]
+        self.delete_task(task_id)
+
+    def on_queue_tree_delete(self, event):
+        self.delete_selected_task()
+
+    def toggle_queue_processing(self):
+        if self.queue_manager.is_running:
+            self.stop_queue_processing()
+        else:
+            self.start_queue_processing()
+
+    def start_queue_processing(self):
+        self.queue_manager.is_running = True
+        if hasattr(self, "btn_toggle_queue"):
+            self.btn_toggle_queue.configure(text="🛑 Cancel Queue", fg_color="#e74c3c", hover_color="#c0392b")
+
+    def stop_queue_processing(self):
+        self.queue_manager.is_running = False
+        if hasattr(self, "btn_toggle_queue"):
+            self.btn_toggle_queue.configure(text="▶ Start Queue", fg_color="#2ecc71", hover_color="#27ae60")
 
     def show_task_details_and_logs(self, task):
         logs_text = "\n".join(task.log_messages)
@@ -1909,6 +2020,11 @@ class AudioCompressorGUI:
         active = len(self.queue_manager.active_workers)
         status_text = "Idle" if not self.queue_manager.is_running else "Running"
         
+        # Auto-reset queue processing button when all tasks complete
+        if self.queue_manager.is_running and compressing == 0 and queued == 0 and pending == 0:
+            self.stop_queue_processing()
+            status_text = "Idle"
+            
         bar_text = f"Queue Status: {status_text} | Total Tasks: {total} | Pending: {pending} | Queued: {queued} | Compressing: {compressing} | Success: {completed} | Failed: {failed} | Active Workers: {active}"
         self.lbl_status_bar.configure(text=bar_text)
         
@@ -1926,7 +2042,7 @@ def main():
         parser.add_argument("-s", "--speed", type=float, default=1.0, help="Speed multiplier (0.5x to 3.0x) for audio/video")
         parser.add_argument("-r", "--resize", type=float, default=1.0, help="Image resize scale factor (0.1 to 1.0)")
         parser.add_argument("-f", "--format", default=None, help="Target conversion format (e.g. mp4, webm, mp3, png, webp)")
-        parser.add_argument("-p", "--preset", default="medium", help="Encoding speed preset (ultrafast, superfast, veryfast, faster, fast, medium, slow)")
+        parser.add_argument("-p", "--preset", default="ultrafast", help="Encoding speed preset (ultrafast, superfast, veryfast, faster, fast, medium, slow)")
         parser.add_argument("-a", "--accel", default="Auto-Detect", choices=["Auto-Detect", "CPU", "Nvidia NVENC", "AMD AMF", "Intel QSV", "Windows MediaFoundation"], help="Hardware acceleration encoder to use")
         
         args = parser.parse_args()

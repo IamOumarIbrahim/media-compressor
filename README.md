@@ -1,4 +1,4 @@
-# ⚡ Media Compressor Pro (v0.5)
+# ⚡ Media Compressor Pro (v2.5)
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg](https://img.shields.io/badge/Dependency-FFmpeg-green.svg?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
@@ -35,10 +35,25 @@ Featuring **GPU hardware acceleration** and **parallel batch worker queues**, th
   - **PDF Documents**: `.pdf`
   - **Office Documents**: `.docx`, `.pptx`, `.xlsx`
   - **Archives**: `.zip`
-- ⚡ **GPU Hardware Acceleration (New)**:
-  - Dynamically probes and checks host for working hardware encoders at startup (NVIDIA NVENC, AMD AMF, Intel QSV, Windows MediaFoundation).
-  - Automatically routes H.264/HEVC/VP9 encoding to GPU cores, yielding **up to 10x faster encoding speed** while reducing CPU usage.
-- 📁 **Batch Imports & Folder Scanning (New)**:
+- 🛡️ **Non-Destructive Copy Framework (v2.0)**:
+  - Original files and folders are **never** modified or overwritten.
+  - Automatically checks and increments names if target output files exist (e.g. `video_compressed (1).mp4`) to prevent destruction of old work.
+- 🩺 **Runtime Self-Healing Framework (v2.0)**:
+  - Automatically detects and installs missing Python libraries (`customtkinter`, `Pillow`, `pypdf`) via pip.
+  - Auto-checks for FFmpeg and attempts background download via winget if missing.
+  - Recoverable task architecture (auto-switches failed GPU encodings to safe CPU modes or alternative codecs).
+- ⚡ **Fastest Processing & Simplified GUI (v2.5)**:
+  - Streamlined interface for non-technical users, removing confusing preset and acceleration overrides.
+  - Defaults all encodings to the fastest processing speed (`ultrafast` preset) with auto-probed hardware acceleration.
+- 🖥️ **Tabular Processing Queue & CRUD (v2.5)**:
+  - Clean spreadsheet layout showing serial numbers, filenames, and statuses (Not processed, Processing, Finished, Failed).
+  - CRUD operations (Edit, Delete, Clear) available with simple spreadsheet-action buttons.
+- 🔄 **Smart Start/Cancel Queue Toggle (v2.5)**:
+  - A single, prominent button that dynamically switches between "Start Queue" (green) and "Cancel Queue" (red) during active execution.
+- ⚙️ **Auto-Thread Scaling & Output Defaulting (v2.5)**:
+  - Automatically scales parallel worker threads to the system's maximum logical cores for lightning-fast batch processing.
+  - Output directory automatically defaults to the input file or folder parent path, making conversions immediate and logical.
+- 📁 **Batch Imports & Folder Scanning**:
   - Select and load multiple files or use the **Folder...** import button to scan directory trees for supported media files instantly.
 - ⏩ **Speed Adjustments**: 
   - Adjust speed multipliers from `0.5x` to `3.0x` with a live duration preview. 
@@ -48,9 +63,6 @@ Featuring **GPU hardware acceleration** and **parallel batch worker queues**, th
 - ⚙️ **Smart Document & Archive Compression**:
   - Compresses `.docx`, `.pptx`, and `.xlsx` archives by optimizing internal media assets while keeping text formatting intact.
   - Automatically unzips `.zip` archives, recursively compresses all media elements using budget scaling, and re-packages them.
-- 🖥️ **Thread-Safe Multi-Worker Queue**:
-  - Full CRUD operations (Add, Edit settings, Pause, Delete, Clear) for queued items.
-  - Concurrent thread pool worker counts selectable from 1 to 8 workers.
 - 📁 **Explorer Integration & Live Logs**:
   - Automatically opens and highlights output folders on completion.
   - Live output log panels and dark-themed output folder Treeview.
@@ -141,9 +153,9 @@ python compress.py
 ```
 Or simply double-click `run.bat`.
 1. Click **File(s)...** or **Folder...** to import input elements.
-2. Select target format conversion options and speed presets.
-3. Configure the **Hardware Acceleration** settings (e.g. Nvidia NVENC, Intel QSV, Auto-Detect).
-4. Set the target size in MB, click **Add to Queue**, and click **Start Queue**.
+2. Select target format conversion options (optional).
+3. Configure the target size in MB and custom naming pattern.
+4. Click **Add to Queue**, and click **Start Queue**.
 
 ### Option B: Command-Line Interface (CLI)
 CLI usage syntax:
@@ -155,15 +167,15 @@ python compress.py <input_file> [output_dir] [target_size_mb] [options]
 *   `-s`, `--speed`: Playback speed multiplier (0.5x to 3.0x).
 *   `-r`, `--resize`: Image resize scale factor (0.1 to 1.0).
 *   `-f`, `--format`: Convert target format (e.g. mp4, webm, mp3, png, webp).
-*   `-p`, `--preset`: Speed presets (`ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`).
+*   `-p`, `--preset`: Speed presets (`ultrafast`, `superfast`, `veryfast`, `faster`, `fast`, `medium`, `slow`). Defaults to `ultrafast`.
 *   `-a`, `--accel`: GPU Hardware Acceleration (`Auto-Detect`, `CPU`, `Nvidia NVENC`, `AMD AMF`, `Intel QSV`, `Windows MediaFoundation`).
 
 **Examples**:
 ```bash
-# Compress a video using NVENC hardware acceleration under 15MB at 1.25x speed
-python compress.py input.mp4 -s 1.25 -a "Nvidia NVENC"
+# Compress a video under 15MB at 1.25x speed (uses fastest preset and Auto-Detect GPU by default)
+python compress.py input.mp4 -s 1.25
 
-# Convert and compress a WebM video to MP4 under 5MB using Auto-Detect GPU acceleration
+# Convert and compress a WebM video to MP4 under 5MB
 python compress.py input.webm DONE 5.0 -f mp4
 
 # Compress and convert a PNG to WebP under 1MB
@@ -193,6 +205,14 @@ You can compile a portable, single-file Windows executable that bundles all depe
    pyinstaller -y MediaCompressor.spec
    ```
 3. Your portable executable will be created in the `dist/` directory as `MediaCompressor.exe`.
+---
+
+## 🔮 Future Roadmap (v3.0)
+
+For the upcoming version, we plan to implement the following features:
+- **Local Web-Control Dashboard**: Start a micro-webserver (FastAPI/Flask) allowing users to monitor progress and queue files from any local network device.
+- **Cloud Storage Integration**: Automatically upload compressed files to Google Drive, Dropbox, or AWS S3.
+- **System Tray Integration**: Minimize the application to the Windows tray with native notifications.
 
 ---
 
