@@ -925,7 +925,7 @@ def compress_file(input_file, output_dir, max_size_mb=15.0, speed=1.0, image_sca
     return None
 
 class CompressionTask:
-    def __init__(self, input_path, output_dir, target_size, speed, image_scale, target_format=None, preset="ultrafast", hw_accel="Auto-Detect"):
+    def __init__(self, input_path, output_dir, target_size, speed, image_scale, target_format=None, preset="ultrafast", hw_accel="Auto-Detect", naming_pattern="{filename}_compressed"):
         self.id = str(uuid.uuid4())
         self.input_path = input_path
         self.output_dir = output_dir
@@ -935,6 +935,7 @@ class CompressionTask:
         self.target_format = target_format
         self.preset = preset
         self.hw_accel = hw_accel
+        self.naming_pattern = naming_pattern
         self.status = "Pending"  # Pending, Queued, Compressing, Success, Failed, Cancelled
         self.progress = 0.0
         self.log_messages = []
@@ -1578,7 +1579,7 @@ class AudioCompressorGUI:
             pass
 
     def update_file_preview(self, file_path):
-        self.lbl_preview_img.configure(image="", text="")
+        self.lbl_preview_img.configure(image=None, text="")
         self.lbl_preview_img.image = None
         self.lbl_preview_info.configure(text="No file selected")
         
@@ -1836,7 +1837,7 @@ class AudioCompressorGUI:
             self.lbl_preview_info.configure(text=info_text)
             
             # Show image thumbnail if image
-            self.lbl_preview_img.configure(image="")
+            self.lbl_preview_img.configure(image=None)
             self.lbl_preview_img.image = None
             _, ext = os.path.splitext(task.input_path.lower())
             if ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'):
@@ -1944,7 +1945,7 @@ class AudioCompressorGUI:
             info_text += f"Target Format: {task.target_format}\nStatus: {task.status.upper()}"
             self.lbl_preview_info.configure(text=info_text)
             
-            self.lbl_preview_img.configure(image="")
+            self.lbl_preview_img.configure(image=None)
             self.lbl_preview_img.image = None
             _, ext = os.path.splitext(task.input_path.lower())
             if ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'):
