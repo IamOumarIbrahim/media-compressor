@@ -1069,7 +1069,7 @@ class QueueManager:
 class AudioCompressorGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Media Compressor Pro v2.0")
+        self.root.title("Media Compressor Pro v2.5")
         self.root.geometry("1220x730")
         self.root.minsize(1050, 620)
         
