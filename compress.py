@@ -1033,7 +1033,7 @@ class AudioCompressorGUI:
         container.grid_rowconfigure(0, weight=1)
         
         # --- 1. LEFT PANEL (Settings) ---
-        left_panel = ctk.CTkFrame(container, padding=12)
+        left_panel = ctk.CTkFrame(container)
         left_panel.grid(row=0, column=0, sticky="nsew", padx=5)
         
         lbl_sec_settings = ctk.CTkLabel(left_panel, text="COMPRESSION CONFIG", font=("Segoe UI", 12, "bold"), text_color="#aaaaaa")
@@ -1110,7 +1110,7 @@ class AudioCompressorGUI:
         self.conditional_container.pack(fill=tk.X, expand=True, pady=(0, 10))
         
         # Speed Frame (Audio/Video speed adjuster)
-        self.speed_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6, padding=10)
+        self.speed_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6)
         lbl_speed = ctk.CTkLabel(self.speed_frame, text="Playback Speed:", font=("Segoe UI", 11, "bold"))
         lbl_speed.pack(anchor="w")
         self.speed_slider = ctk.CTkSlider(self.speed_frame, from_=0.5, to=3.0, number_of_steps=25, variable=self.speed_var, command=self.update_speed_preview)
@@ -1124,7 +1124,7 @@ class AudioCompressorGUI:
         self.lbl_speed_preview.pack(side=tk.RIGHT)
         
         # Image Resize Frame (Image dimensions scaling)
-        self.image_resize_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6, padding=10)
+        self.image_resize_frame = ctk.CTkFrame(self.conditional_container, fg_color="#202020", corner_radius=6)
         lbl_scale = ctk.CTkLabel(self.image_resize_frame, text="Resize Scale (Dimensions):", font=("Segoe UI", 11, "bold"))
         lbl_scale.pack(anchor="w")
         self.image_slider = ctk.CTkSlider(self.image_resize_frame, from_=10, to=100, number_of_steps=90, variable=self.image_scale_var, command=self.update_image_preview)
@@ -1144,7 +1144,7 @@ class AudioCompressorGUI:
         self.btn_cancel_edit = ctk.CTkButton(left_panel, text="Cancel Edit", font=("Segoe UI", 10), fg_color="#555555", hover_color="#444444", height=25, command=self.cancel_edit)
         
         # --- 2. MIDDLE PANEL (Active Queue) ---
-        mid_panel = ctk.CTkFrame(container, padding=12)
+        mid_panel = ctk.CTkFrame(container)
         mid_panel.grid(row=0, column=1, sticky="nsew", padx=5)
         
         lbl_sec_queue = ctk.CTkLabel(mid_panel, text="PROCESSING QUEUE", font=("Segoe UI", 12, "bold"), text_color="#aaaaaa")
@@ -1155,7 +1155,7 @@ class AudioCompressorGUI:
         self.queue_scroll_frame.pack(fill=tk.BOTH, expand=True)
         
         # --- 3. RIGHT PANEL (Task Details, Logs & Directory Listing) ---
-        right_panel = ctk.CTkFrame(container, padding=12)
+        right_panel = ctk.CTkFrame(container)
         right_panel.grid(row=0, column=2, sticky="nsew", padx=5)
         
         # Tabview for details/logs vs directory preview
