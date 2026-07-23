@@ -358,7 +358,7 @@ def compress_video(input_file, output_file, max_size_mb=14.9, speed=1.0, log_cal
     else:
         scale_val = 1080
         
-    cmd = [ffmpeg_path, "-y", "-i", input_file, "-map", "0:v:0"]
+    cmd = [ffmpeg_path, "-y", "-hwaccel", "auto", "-i", input_file, "-map", "0:v:0"]
     
     video_filters = []
     if speed != 1.0:
