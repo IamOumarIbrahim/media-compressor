@@ -29,7 +29,7 @@ To remove the right-click option later:
 ## ✨ Features
 
 - 🖱️ **Zero-GUI / File Explorer Context Menu**: Select any file in Windows File Explorer, right-click, and select **"Compress for discord"**.
-- 🎬 **Video Optimization**: Intelligently scales resolution (720p, 480p, 360p, 240p) and bitrates using 2-pass calculations so video files hit target file size (default: 14.5 MB).
+- 🎬 **Video Optimization**: Intelligently scales resolution (720p, 480p, 360p, 240p) and bitrates using 2-pass calculations so video files hit target file size (default: 14.9 MB).
 - ⚡ **Hardware Acceleration**: Auto-detects NVIDIA NVENC, AMD AMF, Intel QSV, or Windows MediaFoundation for ultra-fast GPU video encoding.
 - 📁 **Universal File Support**:
   - **Video**: `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.flv`, `.wmv`, `.m4v`, `.3gp`, `.ts`
@@ -48,7 +48,7 @@ To remove the right-click option later:
 You can also run the compressor directly from PowerShell or Command Prompt:
 
 ```powershell
-# Basic usage (defaults to 14.5 MB output next to input file)
+# Basic usage (defaults to 14.9 MB output next to input file)
 python compress.py "C:\Users\Name\Videos\my_video.mp4"
 
 # Compress multiple files

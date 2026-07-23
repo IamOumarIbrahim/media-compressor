@@ -177,7 +177,7 @@ def parse_time_field(line_str):
             pass
     return None
 
-def compress_audio(input_file, output_file, max_size_mb=14.5, speed=1.0, log_callback=print, progress_callback=None):
+def compress_audio(input_file, output_file, max_size_mb=14.9, speed=1.0, log_callback=print, progress_callback=None):
     ffmpeg_path, ffprobe_path = find_ffmpeg_tools()
     log_callback(f"Using ffmpeg: {ffmpeg_path}")
     log_callback(f"Using ffprobe: {ffprobe_path}")
@@ -262,7 +262,7 @@ def compress_audio(input_file, output_file, max_size_mb=14.5, speed=1.0, log_cal
         log_callback(f"Error running FFmpeg: {e}")
         return None
 
-def compress_video(input_file, output_file, max_size_mb=14.5, speed=1.0, log_callback=print, progress_callback=None, preset="ultrafast", hw_accel="Auto-Detect"):
+def compress_video(input_file, output_file, max_size_mb=14.9, speed=1.0, log_callback=print, progress_callback=None, preset="ultrafast", hw_accel="Auto-Detect"):
     ffmpeg_path, ffprobe_path = find_ffmpeg_tools()
     log_callback(f"Using ffmpeg: {ffmpeg_path}")
     log_callback(f"Using ffprobe: {ffprobe_path}")
@@ -424,7 +424,7 @@ def compress_video(input_file, output_file, max_size_mb=14.5, speed=1.0, log_cal
         
     return None
 
-def compress_image(input_path, output_path, max_size_mb=14.5, user_scale=1.0, log_callback=print, progress_callback=None):
+def compress_image(input_path, output_path, max_size_mb=14.9, user_scale=1.0, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
     _, ext = os.path.splitext(input_path.lower())
     
@@ -501,7 +501,7 @@ def compress_image(input_path, output_path, max_size_mb=14.5, user_scale=1.0, lo
         f.write(data)
     return False
 
-def compress_pdf(input_path, output_path, max_size_mb=14.5, log_callback=print, progress_callback=None):
+def compress_pdf(input_path, output_path, max_size_mb=14.9, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
     quality = 80
     
@@ -543,7 +543,7 @@ def compress_pdf(input_path, output_path, max_size_mb=14.5, log_callback=print, 
         f.write(data)
     return False
 
-def compress_docx_pptx(input_path, output_path, max_size_mb=14.5, log_callback=print, progress_callback=None):
+def compress_docx_pptx(input_path, output_path, max_size_mb=14.9, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
     quality = 80
     scale = 1.0
@@ -602,7 +602,7 @@ def compress_docx_pptx(input_path, output_path, max_size_mb=14.5, log_callback=p
         f.write(compressed_data)
     return False
 
-def compress_zip(input_path, output_path, max_size_mb=14.5, log_callback=print, progress_callback=None):
+def compress_zip(input_path, output_path, max_size_mb=14.9, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
     temp_dir = tempfile.mkdtemp(prefix="temp_zip_")
     
@@ -683,7 +683,7 @@ def compress_zip(input_path, output_path, max_size_mb=14.5, log_callback=print, 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-def compress_file(input_file, output_dir=None, max_size_mb=14.5, speed=1.0, image_scale=1.0, log_callback=print, progress_callback=None, target_format=None, preset="ultrafast", hw_accel="Auto-Detect", naming_pattern="{filename}_compressed"):
+def compress_file(input_file, output_dir=None, max_size_mb=14.9, speed=1.0, image_scale=1.0, log_callback=print, progress_callback=None, target_format=None, preset="ultrafast", hw_accel="Auto-Detect", naming_pattern="{filename}_compressed"):
     if not os.path.isfile(input_file):
         log_callback(f"Error: Input file '{input_file}' not found.")
         return None
@@ -831,7 +831,7 @@ def main():
     parser.add_argument("--install", "--install-context-menu", action="store_true", help="Install 'Compress for discord' right-click Explorer context menu")
     parser.add_argument("--uninstall", "--uninstall-context-menu", action="store_true", help="Uninstall 'Compress for discord' right-click Explorer context menu")
     parser.add_argument("-o", "--output-dir", default=None, help="Destination folder (default: same directory as input file)")
-    parser.add_argument("-s", "--target-size", type=float, default=14.5, help="Target MB size limit (default: 14.5 MB for Discord)")
+    parser.add_argument("-s", "--target-size", type=float, default=14.9, help="Target MB size limit (default: 14.9 MB for Discord)")
     parser.add_argument("--speed", type=float, default=1.0, help="Speed multiplier (0.5x to 3.0x) for audio/video")
     parser.add_argument("--resize", type=float, default=1.0, help="Image resize scale factor (0.1 to 1.0)")
     parser.add_argument("-f", "--format", default=None, help="Target conversion format (e.g. mp4, webm, mp3, png)")

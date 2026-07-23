@@ -113,11 +113,11 @@ def run_tests():
             orig_size = os.path.getsize(file_path) / (1024 * 1024)
             print(f"\nTesting: {name} (Original Size: {orig_size:.2f} MB)")
             
-            out_file = compress_file(file_path, output_dir=out_dir, max_size_mb=14.5, log_callback=lambda msg: None)
+            out_file = compress_file(file_path, output_dir=out_dir, max_size_mb=14.9, log_callback=lambda msg: None)
             
             if out_file and os.path.exists(out_file):
                 final_size = os.path.getsize(out_file) / (1024 * 1024)
-                passed = final_size <= 14.5
+                passed = final_size <= 14.9
                 status = "PASSED" if passed else "FAILED (Exceeded Target)"
                 results.append((name, status, f"{orig_size:.2f} MB -> {final_size:.2f} MB", os.path.basename(out_file)))
             else:
