@@ -369,7 +369,8 @@ def compress_video(input_file, output_file, max_size_mb=14.5, speed=1.0, log_cal
     if vcodec == "libx264":
         cmd.extend(["-codec:v", "libx264", "-preset", preset, "-b:v", f"{video_bitrate_kbps}k"])
     elif vcodec == "h264_nvenc":
-        cmd.extend(["-codec:v", "h264_nvenc", "-preset", preset, "-b:v", f"{video_bitrate_kbps}k"])
+        nvenc_preset = "p1" if preset in ("ultrafast", "superfast") else "p2" if preset in ("veryfast", "faster") else "p4"
+        cmd.extend(["-codec:v", "h264_nvenc", "-preset", nvenc_preset, "-b:v", f"{video_bitrate_kbps}k"])
     elif vcodec == "h264_amf":
         amf_quality = "speed" if preset in ("ultrafast", "superfast", "veryfast", "faster", "fast") else "quality"
         cmd.extend(["-codec:v", "h264_amf", "-quality", amf_quality, "-b:v", f"{video_bitrate_kbps}k"])
@@ -410,10 +411,18 @@ def compress_video(input_file, output_file, max_size_mb=14.5, speed=1.0, log_cal
             if line_str and ("size=" in line_str or "time=" in line_str or "bitrate=" in line_str or "frame=" in line_str):
                 log_callback(line_str)
         process.wait()
-        return output_file if process.returncode == 0 else None
+        if process.returncode == 0 and os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            return output_file
+        else:
+            log_callback(f"FFmpeg process returned code {process.returncode}")
     except Exception as e:
         log_callback(f"Error running FFmpeg: {e}")
-        return None
+        
+    if vcodec != "libx264" and out_ext != ".webm":
+        log_callback(f"[Self-Healing] GPU encoder '{vcodec}' failed. Auto-retrying with CPU (libx264) software encoder...")
+        return compress_video(input_file, output_file, max_size_mb, speed, log_callback, progress_callback, preset, hw_accel="CPU")
+        
+    return None
 
 def compress_image(input_path, output_path, max_size_mb=14.5, user_scale=1.0, log_callback=print, progress_callback=None):
     target_bytes = max_size_mb * 1024 * 1024
