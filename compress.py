@@ -347,15 +347,16 @@ def compress_video(input_file, output_file, max_size_mb=14.9, speed=1.0, log_cal
         if hw_accel == "Intel QSV" or (hw_accel == "Auto-Detect" and "vp9_qsv" in (detect_supported_hardware_encoders() or [])):
             vcodec = "vp9_qsv"
     
-    scale_val = 720
     if video_bitrate_kbps < 200:
         scale_val = 240
     elif video_bitrate_kbps < 500:
         scale_val = 360
     elif video_bitrate_kbps < 1000:
         scale_val = 480
-    else:
+    elif video_bitrate_kbps < 2500:
         scale_val = 720
+    else:
+        scale_val = 1080
         
     cmd = [ffmpeg_path, "-y", "-i", input_file, "-map", "0:v:0"]
     
