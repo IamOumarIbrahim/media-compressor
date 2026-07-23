@@ -1,2 +1,3 @@
 @echo off
-pyinstaller -y MediaCompressor.spec
+pyinstaller -y compress.spec
+pause
