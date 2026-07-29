@@ -1,72 +1,113 @@
-# ⚡ Media & File Compressor for Discord
+<!--
+  MASTER README TEMPLATE
+  Copy this file into any new or existing repository as README.md and fill in every
+  [BRACKETED] field. Delete any optional section (Mathematical Foundations, Screenshots)
+  that does not apply to the project. Keep section ordering consistent across repos —
+  this is what makes a portfolio look like one coherent body of work instead of
+  twenty unrelated dumps.
+-->
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![FFmpeg](https://img.shields.io/badge/Dependency-FFmpeg-green.svg?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
-[![Pillow](https://img.shields.io/badge/Library-Pillow-orange.svg?style=flat-square&logo=python&logoColor=white)](https://python-pillow.org/)
-[![PyPDF](https://img.shields.io/badge/Library-PyPDF-yellow.svg?style=flat-square)](https://pypi.org/project/pypdf/)
+# ⚡ Compress — File & Media Compressor
 
-A fast, headless media and file compressor designed specifically for Windows File Explorer. Right-click any file (videos, audio, images, documents, archives, or generic files) and click **"Compress for discord"** to instantly compress it to under **15 MB** right next to the original file.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![Language](https://img.shields.io/badge/Python-3.8+-blue.svg?style=flat-square&logo=python&logoColor=white)](#)
+[![Platform](https://img.shields.io/badge/Platform-Windows_10%2F11-lightgrey.svg?style=flat-square)](#)
+[![Key Dependency](https://img.shields.io/badge/FFmpeg-Media-green.svg?style=flat-square)](#)
+
+A headless media and file compressor designed for Windows File Explorer. Right-click any video, audio, image, or document to instantly compress it to under 15 MB for Discord sharing.
 
 ---
 
-## ⚡ Quick Setup (1-Click Explorer Integration)
+## 📖 Table of Contents
+- [Key Features](#-key-features)
+- [System Architecture](#%EF%B8%8F-system-architecture)
+- [Quick Setup & Installation](#-quick-setup--installation)
+- [How to Use](#-how-to-use)
+- [File Structure](#-file-structure)
+- [License](#-license)
 
-### Option 1: Right-Click Setup (Recommended)
-Double-click `install_context_menu.bat` to register **"Compress for discord"** in Windows File Explorer.
+---
 
-### Option 2: Command Line
-```powershell
+## ✨ Key Features
+
+- Context Menu Integration: Zero-GUI compression via Windows Explorer.
+- Video Optimization: 2-pass target size scaling.
+- Hardware Acceleration: NVENC, AMF, QSV auto-detection.
+- Universal Support: Handles media, PDFs, and generic archives.
+
+---
+
+## ⚙️ System Architecture
+
+File processing pipeline through FFmpeg and packaging modules.
+
+```mermaid
+graph TD
+    Input["File Explorer Context"] --> Stage1["Type Detector"]
+    Stage1 --> Stage2["FFmpeg/Zip Compressor"]
+    Stage2 --> Output["14.9MB Output File"]
+
+    classDef default fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#fff;
+    classDef process fill:#1e1b4b,stroke:#a855f7,stroke-width:2px,color:#fff;
+    class Stage1,Stage2 process;
+```
+
+---
+
+## 🚀 Quick Setup & Installation
+
+### Prerequisites (Zero-Dependency Setup)
+This guide assumes a clean machine with **no pre-installed tools**.
+
+```cmd
+winget install --id Python.Python.3.11 -e --accept-source-agreements --accept-package-agreements
+winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+```
+
+🔍 **Verification Command**:
+```cmd
+python --version
+```
+*Expected Output*: `Python 3.11.x`
+
+### Clone & Install
+```bash
+git clone https://github.com/IamOumarIbrahim/Compress.git
+cd Compress
+pip install -r requirements.txt
+```
+
+### Run
+```bash
 python compress.py --install
 ```
 
-Once installed, right-click any file in Windows File Explorer and click **Compress for discord**.
-
-To remove the right-click option later:
-- Double-click `uninstall_context_menu.bat` OR run `python compress.py --uninstall`
-
 ---
 
-## ✨ Features
+## 🛠️ How to Use
 
-- 🖱️ **Zero-GUI / File Explorer Context Menu**: Select any file in Windows File Explorer, right-click, and select **"Compress for discord"**.
-- 🎬 **Video Optimization**: Intelligently scales resolution (1080p, 720p, 480p, 360p, 240p) and bitrates using 2-pass calculations so video files hit target file size (default: 14.9 MB).
-- ⚡ **Hardware Acceleration**: Auto-detects NVIDIA NVENC, AMD AMF, Intel QSV, or Windows MediaFoundation for ultra-fast GPU video encoding.
-- 📁 **Universal File Support**:
-  - **Video**: `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.flv`, `.wmv`, `.m4v`, `.3gp`, `.ts`
-  - **Audio**: `.mp3`, `.m4a`, `.wav`, `.flac`, `.ogg`, `.aac`, `.wma`, `.opus`
-  - **Images**: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.tiff`
-  - **PDF Documents**: `.pdf`
-  - **Office Documents**: `.docx`, `.pptx`, `.xlsx`
-  - **Archives**: `.zip`
-  - **Generic Files**: Automatically compresses into a `.zip` archive if over 15 MB.
-- 🛡️ **Non-Destructive Output**: Automatically saves compressed files alongside original files as `filename_compressed.ext` (increments `filename_compressed (1).ext` if it already exists).
+1. Right-click any file in Windows Explorer.
+2. Select Compress for discord.
+3. Wait for the compressed file to appear.
 
----
-
-## 💻 Command Line Usage
-
-You can also run the compressor directly from PowerShell or Command Prompt:
-
-```powershell
-# Basic usage (defaults to 14.9 MB output next to input file)
-python compress.py "C:\Users\Name\Videos\my_video.mp4"
-
-# Compress multiple files
-python compress.py "video1.mp4" "video2.mov" "image.png"
-
-# Specify custom target size (e.g. 8 MB or 25 MB)
+```bash
+# Example command
 python compress.py "video.mp4" -s 8.0
-
-# Specify custom output directory
-python compress.py "video.mp4" -o "C:\Output"
 ```
 
 ---
 
-## 📦 Building Standalone Executable (`.exe`)
+## 📁 File Structure
 
-To compile into a single standalone binary:
-```powershell
-build.bat
-```
-The compiled executable will be located in the `dist\compress.exe` directory.
+Compress/
+├── compress.py - Core compressor engine
+├── scripts/
+│ ├── install_context_menu.bat - Registry setup
+│ └── uninstall_context_menu.bat - Registry cleanup
+├── requirements.txt
+└── README.md
+
+---
+
+## 📄 License
+This repository is licensed under the [MIT License](LICENSE).
