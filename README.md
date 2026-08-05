@@ -135,6 +135,8 @@ python compress.py "video.mp4" -s 8.0
 
 ```
 Compress/
+├── assets/
+│   └── demo.gif                 - Demo preview animation
 ├── compress.py                  - Core compressor engine
 ├── scripts/
 │   ├── install_context_menu.bat - Registry setup
