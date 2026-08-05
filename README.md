@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>⚡ Compress</h1>
+  <h1> Compress</h1>
   <p><strong>Headless media and file compressor designed for Windows File Explorer context menus</strong></p>
 
   <p>
@@ -21,7 +21,7 @@ Compress is a headless media and file compressor designed for Windows File Explo
 
 <br />
 
-## 📖 Table of Contents
+## Table of Contents
 - [What is Compress?](#-what-is-compress)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
@@ -36,7 +36,7 @@ Compress is a headless media and file compressor designed for Windows File Explo
 
 ---
 
-## 💡 What is Compress?
+## What is Compress?
 
 Users often struggle to share large media files over platforms like Discord due to strict file size limits (e.g., 25MB or 15MB). Compress eliminates the need to manually open bulky video editing software or upload files to sketchy web compressors.
 
@@ -47,16 +47,16 @@ Instead of manual video encoding, Compress integrates right into your OS:
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-- 🖱️ **Context Menu Integration**: Right-click native OS integration without needing to open a GUI application.
-- 🎯 **Video Optimization**: 2-pass target size scaling algorithm to hit the < 15MB goal with maximum quality.
-- 🏎️ **Hardware Acceleration**: Automatically detects and utilizes GPU encoders (NVENC for NVIDIA, AMF for AMD, QSV for Intel).
-- 📦 **Universal Support**: Seamlessly processes video, audio, image formats, PDFs, and automatically zips generic archives.
+- ️ **Context Menu Integration**: Right-click native OS integration without needing to open a GUI application.
+-  **Video Optimization**: 2-pass target size scaling algorithm to hit the < 15MB goal with maximum quality.
+- ️ **Hardware Acceleration**: Automatically detects and utilizes GPU encoders (NVENC for NVIDIA, AMF for AMD, QSV for Intel).
+-  **Universal Support**: Seamlessly processes video, audio, image formats, PDFs, and automatically zips generic archives.
 
 ---
 
-## ⚙️ System Architecture
+## ️ System Architecture
 
 File processing pipeline through FFmpeg and packaging modules.
 
@@ -76,7 +76,7 @@ graph TD
 
 ---
 
-## 🚀 Setup & Installation
+## Setup & Installation
 
 ### Option A: 1-Click Setup (Windows)
 ```cmd
@@ -93,7 +93,7 @@ cd Compress
 pip install -r requirements.txt
 ```
 
-🔍 **Verification Command**:
+ **Verification Command**:
 ```bash
 python --version
 ```
@@ -101,7 +101,7 @@ python --version
 
 ---
 
-## 🖥️ How to Use
+## ️ How to Use
 
 1. Right-click any file in Windows Explorer.
 2. Select `Compress for discord` from the context menu.
@@ -114,7 +114,7 @@ python compress.py "video.mp4" -s 8.0
 
 ---
 
-## 📊 Reference Tables
+## Reference Tables
 
 | CLI Flag | Argument | Description |
 | :--- | :--- | :--- |
@@ -123,14 +123,14 @@ python compress.py "video.mp4" -s 8.0
 
 ---
 
-## 🔬 Scope & Limitations
+## Scope & Limitations
 
 - **Windows Specific**: The context menu installation relies on the Windows Registry, making it incompatible with Linux/macOS file managers.
 - **Hardcoded Target Size**: Optimized specifically for Discord's limits; extreme custom sizing may require modifying the Python script.
 
 ---
 
-## 📁 File Structure
+## File Structure
 
 ```
 Compress/
@@ -146,7 +146,7 @@ Compress/
 
 ---
 
-## 🩹 Troubleshooting
+## Troubleshooting
 
 | Issue | Root Cause | Resolution |
 | :--- | :--- | :--- |
@@ -155,20 +155,20 @@ Compress/
 
 ---
 
-## 🧩 Contributing
+## Contributing
 
 To add support for new file types, modify the `Type Detector` logic in `compress.py` and submit a Pull Request with the corresponding processing function.
 
 ---
 
-## 📄 License
+## License
 MIT License © 2026 IamOumarIbrahim(https://github.com/IamOumarIbrahim)
 
-## 🙏 Powered By
+## Powered By
 [FFmpeg](https://ffmpeg.org/) · [Python](https://www.python.org/)
 
 <div align="center">
 
-If Compress saved your Discord sharing workflow, a ⭐ helps other people find it.
+If Compress saved your Discord sharing workflow, a  helps other people find it.
 
 </div>
