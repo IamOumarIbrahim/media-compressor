@@ -2,13 +2,12 @@
   <h1>⚡ Compress</h1>
   <p><strong>Headless media and file compressor designed for Windows File Explorer context menus</strong></p>
 
-  [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg?style=flat-square&logo=python&logoColor=white)](#)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-  [![CI](https://github.com/IamOumarIbrahim/Compress/actions/workflows/ci.yml/badge.svg)](https://github.com/IamOumarIbrahim/Compress/actions/workflows/ci.yml)
-
-  <br />
-  [![Platform](https://img.shields.io/badge/Platform-Windows_10%2F11-lightgrey.svg?style=flat-square)](#)
-  [![FFmpeg](https://img.shields.io/badge/Dependency-FFmpeg-green.svg?style=flat-square)](#)
+  <p>
+    <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.8+-blue.svg?style=flat-square&logo=python&logoColor=white" alt="Python" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT" /></a>
+    <img src="https://img.shields.io/badge/Platform-Windows_10%2F11-lightgrey.svg?style=flat-square" alt="Platform" />
+    <img src="https://img.shields.io/badge/Dependency-FFmpeg-green.svg?style=flat-square" alt="FFmpeg" />
+  </p>
 </div>
 
 <p align="center">
